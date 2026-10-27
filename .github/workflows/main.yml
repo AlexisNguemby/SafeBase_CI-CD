@@ -74,6 +74,12 @@ jobs:
             npm run build
           } 2>&1 | tee -a "$CI_LOG"
 
+      - name: Normaliser le namespace GHCR
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "IMAGE_NAMESPACE=$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       # Le tag est normalisé afin de rester valide comme tag Docker, y compris
       # lorsque le nom du tag Git contient des slashs.
       - name: Déterminer les tags Docker
