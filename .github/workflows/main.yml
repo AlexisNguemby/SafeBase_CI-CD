@@ -1,4 +1,4 @@
-  name: SafeBase CI/CD
+name: SafeBase CI/CD
 
 on:
   push:
