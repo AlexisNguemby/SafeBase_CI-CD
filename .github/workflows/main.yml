@@ -1,0 +1,169 @@
+  name: SafeBase CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "**"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAMESPACE: ${{ github.repository_owner }}
+  CI_LOG: ${{ github.workspace }}/ci.log
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Récupération du code source.
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialiser le journal CI
+        run: |
+          : > "$CI_LOG"
+          echo "Workflow: $GITHUB_WORKFLOW" >> "$CI_LOG"
+          echo "Commit: $GITHUB_SHA" >> "$CI_LOG"
+
+      # 2. Les étapes sont séquentielles : un échec arrête le job et empêche
+      #    le build et le push de l'image.
+      - name: Configurer Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Installer les dépendances du serveur
+        working-directory: server
+        run: |
+          set -o pipefail
+          npm ci 2>&1 | tee -a "$CI_LOG"
+
+      - name: Tester le serveur
+        working-directory: server
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee -a "$CI_LOG"
+
+      - name: Configurer Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Construire et tester le worker Go
+        working-directory: worker-go
+        run: |
+          set -o pipefail
+          IMAGE_NAMESPACE="$(printf '%s' "$IMAGE_NAMESPACE" | tr '[:upper:]' '[:lower:]')"
+          {
+            go build ./...
+            go test ./...
+          } 2>&1 | tee -a "$CI_LOG"
+
+      - name: Installer et construire le client
+        working-directory: client
+        run: |
+          set -o pipefail
+          {
+            npm ci
+            npm run build
+          } 2>&1 | tee -a "$CI_LOG"
+
+      # Le tag est normalisé afin de rester valide comme tag Docker, y compris
+      # lorsque le nom du tag Git contient des slashs.
+      - name: Déterminer les tags Docker
+        id: image-tags
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            safe_tag="$(printf '%s' "$GITHUB_REF_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9._-]/-/g' | cut -c1-100)"
+            channel="prod"
+            version_tag="${channel}-${safe_tag}"
+          else
+            channel="dev"
+            version_tag="${channel}-${GITHUB_SHA}"
+          fi
+
+          {
+            echo "channel=$channel"
+            echo "version_tag=$version_tag"
+            echo "latest_tag=${channel}-latest"
+          } >> "$GITHUB_OUTPUT"
+
+      # 3-4. Construction et publication des images applicatives sur GHCR.
+      - name: Se connecter à GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Construire et pousser les images Docker
+        env:
+          VERSION_TAG: ${{ steps.image-tags.outputs.version_tag }}
+          LATEST_TAG: ${{ steps.image-tags.outputs.latest_tag }}
+        run: |
+          set -o pipefail
+          {
+            docker build \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-server:$VERSION_TAG" \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-server:$LATEST_TAG" \
+              ./server
+            docker build \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-client:$VERSION_TAG" \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-client:$LATEST_TAG" \
+              ./client
+            docker build \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$VERSION_TAG" \
+              --tag "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG" \
+              ./worker-go
+
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-server:$VERSION_TAG"
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-server:$LATEST_TAG"
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-client:$VERSION_TAG"
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-client:$LATEST_TAG"
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$VERSION_TAG"
+            docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG"
+          } 2>&1 | tee -a "$CI_LOG"
+
+      # 5. La notification s'exécute même si une étape précédente a échoué.
+      #    Le webhook est le seul secret transmis à Google Chat.
+      - name: Notifier Google Chat
+        if: always()
+        continue-on-error: true
+        env:
+          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
+          JOB_STATUS: ${{ job.status }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]]; then
+            echo "GOOGLE_CHAT_WEBHOOK_URL n'est pas configuré; notification ignorée." >&2
+            exit 0
+          fi
+
+          logs="$(tail -c 6000 "$CI_LOG" 2>/dev/null || true)"
+          jq -n \
+            --arg status "$JOB_STATUS" \
+            --arg commit "$GITHUB_SHA" \
+            --arg ref "$GITHUB_REF_NAME" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg logs "$logs" \
+            '{
+              text: ("SafeBase CI/CD: " + $status +
+                "\nCommit: " + $commit +
+                "\nRéférence: " + $ref +
+                "\nExécution: " + $run_url +
+                (if $status == "success" then "" else
+                  "\nExtrait des logs/raison de l’échec:\n" + $logs
+                end))
+            }' |
+            curl --fail-with-body --silent --show-error \
+              -H "Content-Type: application/json" \
+              --data-binary @- \
+              "$GOOGLE_CHAT_WEBHOOK_URL"
