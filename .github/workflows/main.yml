@@ -138,7 +138,41 @@ jobs:
             docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG"
           } 2>&1 | tee -a "$CI_LOG"
 
-      # 5. La notification s'exécute même si une étape précédente a échoué.
+      # 5. Connexion au réseau privé via Tailscale pour atteindre le VPS
+      - name: Connexion au réseau Tailscale
+        uses: tailscale/github-action@v2
+        with:
+          authkey: ${{ secrets.TS_AUTHKEY }}
+
+      # 6. Déploiement SSH sur le VPS
+      - name: Déployer sur le VPS via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          REGISTRY: ${{ env.REGISTRY }}
+          IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
+          LATEST_TAG: ${{ steps.image-tags.outputs.latest_tag }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          port: ${{ secrets.VPS_PORT }}
+          username: ${{ secrets.VPS_USER }}
+          password: ${{ secrets.VPS_PASSWORD }}
+          script_stop_on_error: true
+          envs: REGISTRY,IMAGE_NAMESPACE,LATEST_TAG
+          script: |
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
+            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-server:$LATEST_TAG
+            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-client:$LATEST_TAG
+            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG
+            
+            # S'assure que le dossier du projet existe ou exécute le déploiement
+            if [ -f "docker-compose.yml" ] || [ -f "compose.yaml" ]; then
+              docker compose down
+              docker compose up -d --remove-orphans
+            else
+              echo "Avertissement: Aucun fichier docker-compose trouvé sur le VPS dans le répertoire courant."
+            fi
+
+      # 7. La notification s'exécute même si une étape précédente a échoué.
       #    Le webhook est le seul secret transmis à Google Chat.
       - name: Notifier Google Chat
         if: always()
