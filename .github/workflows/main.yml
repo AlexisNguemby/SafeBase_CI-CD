@@ -1,5 +1,5 @@
 name: SafeBase CI/CD
-
+# push sur main et de la publication Docker.
 on:
   push:
     branches:

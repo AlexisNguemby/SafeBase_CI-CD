@@ -1,64 +1,74 @@
 name: SafeBase CI Pipeline
 
+#  vérifie les Pull Requests avant leur fusion dans main.
+
 on:
-  push:
-    branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
 
 jobs:
+  # Vérifie que le backend Node.js fonctionne correctement.
   check-server-node:
     runs-on: ubuntu-latest
     steps:
+      # Récupère le code du dépôt sur la machine temporaire de GitHub Actions.
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # Installe Node.js, nécessaire pour lancer les commandes npm du backend.
+      - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies
-        run: |
-          cd server
-          npm install
+      # Installe exactement les dépendances indiquées dans server/package-lock.json.
+      - name: Installer les dépendances du serveur
+        working-directory: server
+        run: npm ci
 
-      - name: Run server tests
-        run: |
-          cd server
-          npm test
+      # Lance les tests du backend définis dans server/package.json.
+      - name: Tester le serveur
+        working-directory: server
+        run: npm test
 
+  # Vérifie que le worker Go compile et que ses tests passent.
   check-worker-go:
     runs-on: ubuntu-latest
     steps:
+      # Récupère le code du dépôt sur une machine temporaire.
       - uses: actions/checkout@v4
 
-      - name: Setup Go
+      # Installe Go, nécessaire pour compiler et tester le worker.
+      - name: Installer Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.23'
 
-      - name: Build Worker Go
-        run: |
-          cd worker-go
-          go build ./...
+      # Vérifie que le code du worker peut être compilé.
+      - name: Compiler le worker Go
+        working-directory: worker-go
+        run: go build ./...
 
-      - name: Run Worker Go tests
-        run: |
-          cd worker-go
-          go test ./...
+      # Lance tous les tests du worker Go.
+      - name: Tester le worker Go
+        working-directory: worker-go
+        run: go test ./...
 
+  # Vérifie que le frontend React peut être construit.
   check-client-web:
     runs-on: ubuntu-latest
     steps:
+      # Récupère le code du dépôt sur une autre machine temporaire.
       - uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      # Ce job est indépendant du job serveur : il a donc besoin de Node.js lui aussi.
+      - name: Installer Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
-      - name: Install dependencies & Build React
+      # Installe les dépendances et construit l'application React.
+      - name: Installer les dépendances et construire le client
+        working-directory: client
         run: |
-          cd client
-          npm install
-          npm run build --if-present
+          npm ci
+          npm run build
