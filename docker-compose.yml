@@ -39,7 +39,6 @@ services:
 
   # Backend Principal Node.js / Express / TypeScript
   server-node:
-    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-alexisnguemby}/safebase-server:${LATEST_TAG:-latest}
     build:
       context: ./server
       dockerfile: Dockerfile
@@ -70,7 +69,6 @@ services:
 
   # Microservice Engine / Worker en Go
   worker-go:
-    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-alexisnguemby}/safebase-worker:${LATEST_TAG:-latest}
     build:
       context: ./worker-go
       dockerfile: Dockerfile
@@ -94,7 +92,6 @@ services:
 
   # Frontend React + Vite
   client-web:
-    image: ${REGISTRY:-ghcr.io}/${IMAGE_NAMESPACE:-alexisnguemby}/safebase-client:${LATEST_TAG:-latest}
     build:
       context: ./client
       dockerfile: Dockerfile
