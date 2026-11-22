@@ -6,6 +6,11 @@ on:
       - main
     tags:
       - "**"
+  workflow_dispatch:
+
+concurrency:
+  group: safebase-cd-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -23,7 +28,7 @@ jobs:
     steps:
       # 1. Récupération du code source.
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Initialiser le journal CI
         run: |
@@ -34,9 +39,9 @@ jobs:
       # 2. Les étapes sont séquentielles : un échec arrête le job et empêche
       #    le build et le push de l'image.
       - name: Configurer Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Installer les dépendances du serveur
         working-directory: server
@@ -51,7 +56,7 @@ jobs:
           npm test 2>&1 | tee -a "$CI_LOG"
 
       - name: Configurer Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: "1.22"
 
@@ -166,7 +171,7 @@ jobs:
             
             # S'assure que le dossier du projet existe ou exécute le déploiement
             if [ -f "docker-compose.yml" ] || [ -f "compose.yaml" ]; then
-              docker compose down
+              docker compose pull
               docker compose up -d --remove-orphans
             else
               echo "Avertissement: Aucun fichier docker-compose trouvé sur le VPS dans le répertoire courant."
