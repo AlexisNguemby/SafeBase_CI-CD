@@ -156,7 +156,7 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
-          script_stop_on_error: true
+          script_stop: true
           envs: REGISTRY,IMAGE_NAMESPACE,LATEST_TAG
           script: |
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
