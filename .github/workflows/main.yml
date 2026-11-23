@@ -138,7 +138,7 @@ jobs:
             docker push "$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG"
           } 2>&1 | tee -a "$CI_LOG"
 
-      # 5. Connexion au réseau privé via Tailscale pour atteindre le VPS
+      # 5. Connexion au réseau privé via Tailscale pour atteindre le VPS.
       - name: Connexion au réseau Tailscale
         uses: tailscale/github-action@v2
         with:
@@ -157,7 +157,7 @@ jobs:
           port="${VPS_PORT:-22}"
           echo "Réseau Tailscale actif:"
           tailscale status
-          echo "Test SSH vers l'hôte configuré..."
+          echo "Test SSH via Tailscale vers $VPS_HOST:$port..."
           timeout 10 bash -c "</dev/tcp/$VPS_HOST/$port"
 
       # 6. Déploiement SSH sur le VPS
@@ -198,39 +198,3 @@ jobs:
               echo "Erreur: Aucun fichier docker-compose trouvé dans $DEPLOY_PATH." >&2
               exit 1
             fi
-
-      # 7. La notification s'exécute même si une étape précédente a échoué.
-      #    Le webhook est le seul secret transmis à Google Chat.
-      - name: Notifier Google Chat
-        if: always()
-        continue-on-error: true
-        env:
-          GOOGLE_CHAT_WEBHOOK_URL: ${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}
-          JOB_STATUS: ${{ job.status }}
-        run: |
-          set -euo pipefail
-          if [[ -z "$GOOGLE_CHAT_WEBHOOK_URL" ]]; then
-            echo "GOOGLE_CHAT_WEBHOOK_URL n'est pas configuré; notification ignorée." >&2
-            exit 0
-          fi
-
-          logs="$(tail -c 6000 "$CI_LOG" 2>/dev/null || true)"
-          jq -n \
-            --arg status "$JOB_STATUS" \
-            --arg commit "$GITHUB_SHA" \
-            --arg ref "$GITHUB_REF_NAME" \
-            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --arg logs "$logs" \
-            '{
-              text: ("SafeBase CI/CD: " + $status +
-                "\nCommit: " + $commit +
-                "\nRéférence: " + $ref +
-                "\nExécution: " + $run_url +
-                (if $status == "success" then "" else
-                  "\nExtrait des logs/raison de l’échec:\n" + $logs
-                end))
-            }' |
-            curl --fail-with-body --silent --show-error \
-              -H "Content-Type: application/json" \
-              --data-binary @- \
-              "$GOOGLE_CHAT_WEBHOOK_URL"
