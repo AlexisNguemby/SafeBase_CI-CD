@@ -31,7 +31,7 @@ jobs:
           echo "Workflow: $GITHUB_WORKFLOW" >> "$CI_LOG"
           echo "Commit: $GITHUB_SHA" >> "$CI_LOG"
 
-      # 2. Les étapes sont séquentielles : un échec arrête le job et empêche
+      # 2. Les étapes sont séquentielles : un échec arrête le job et empêc
       #    le build et le push de l'image.
       - name: Configurer Node.js
         uses: actions/setup-node@v4
