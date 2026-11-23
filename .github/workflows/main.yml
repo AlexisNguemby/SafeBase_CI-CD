@@ -144,6 +144,22 @@ jobs:
         with:
           authkey: ${{ secrets.TS_AUTHKEY }}
 
+      - name: Vérifier la connectivité Tailscale
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_PORT: ${{ secrets.VPS_PORT }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$VPS_HOST" ]]; then
+            echo "VPS_HOST n'est pas configuré." >&2
+            exit 1
+          fi
+          port="${VPS_PORT:-22}"
+          echo "Réseau Tailscale actif:"
+          tailscale status
+          echo "Test SSH vers l'hôte configuré..."
+          timeout 10 bash -c "</dev/tcp/$VPS_HOST/$port"
+
       # 6. Déploiement SSH sur le VPS
       - name: Déployer sur le VPS via SSH
         uses: appleboy/ssh-action@v1.0.3
@@ -151,25 +167,36 @@ jobs:
           REGISTRY: ${{ env.REGISTRY }}
           IMAGE_NAMESPACE: ${{ env.IMAGE_NAMESPACE }}
           LATEST_TAG: ${{ steps.image-tags.outputs.latest_tag }}
+          VPS_DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
         with:
           host: ${{ secrets.VPS_HOST }}
-          port: ${{ secrets.VPS_PORT }}
+          port: ${{ secrets.VPS_PORT || '22' }}
           username: ${{ secrets.VPS_USER }}
           password: ${{ secrets.VPS_PASSWORD }}
+          timeout: "30s"
+          command_timeout: "10m"
           script_stop: true
-          envs: REGISTRY,IMAGE_NAMESPACE,LATEST_TAG
+          envs: REGISTRY,IMAGE_NAMESPACE,LATEST_TAG,VPS_DEPLOY_PATH
           script: |
+            set -e
+            DEPLOY_PATH="${VPS_DEPLOY_PATH:-/opt/safebase}"
+            cd "$DEPLOY_PATH"
+
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login $REGISTRY -u ${{ github.actor }} --password-stdin
-            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-server:$LATEST_TAG
-            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-client:$LATEST_TAG
-            docker pull $REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG
-            
-            # S'assure que le dossier du projet existe ou exécute le déploiement
+
+            export SERVER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/safebase-server:$LATEST_TAG"
+            export CLIENT_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/safebase-client:$LATEST_TAG"
+            export WORKER_IMAGE="$REGISTRY/$IMAGE_NAMESPACE/safebase-worker:$LATEST_TAG"
+            export SERVER_PULL_POLICY=always
+            export CLIENT_PULL_POLICY=always
+            export WORKER_PULL_POLICY=always
+
             if [ -f "docker-compose.yml" ] || [ -f "compose.yaml" ]; then
-              docker compose down
-              docker compose up -d --remove-orphans
+              docker compose pull
+              docker compose up -d --remove-orphans --pull always
             else
-              echo "Avertissement: Aucun fichier docker-compose trouvé sur le VPS dans le répertoire courant."
+              echo "Erreur: Aucun fichier docker-compose trouvé dans $DEPLOY_PATH." >&2
+              exit 1
             fi
 
       # 7. La notification s'exécute même si une étape précédente a échoué.

@@ -39,6 +39,8 @@ services:
 
   # Backend Principal Node.js / Express / TypeScript
   server-node:
+    image: ${SERVER_IMAGE:-safebase-server:local}
+    pull_policy: ${SERVER_PULL_POLICY:-missing}
     build:
       context: ./server
       dockerfile: Dockerfile
@@ -69,6 +71,8 @@ services:
 
   # Microservice Engine / Worker en Go
   worker-go:
+    image: ${WORKER_IMAGE:-safebase-worker:local}
+    pull_policy: ${WORKER_PULL_POLICY:-missing}
     build:
       context: ./worker-go
       dockerfile: Dockerfile
@@ -92,6 +96,8 @@ services:
 
   # Frontend React + Vite
   client-web:
+    image: ${CLIENT_IMAGE:-safebase-client:local}
+    pull_policy: ${CLIENT_PULL_POLICY:-missing}
     build:
       context: ./client
       dockerfile: Dockerfile
